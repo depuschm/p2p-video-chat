@@ -28,20 +28,20 @@ export class Room {
     this.roomEl.classList.remove("hidden");
     this.roomTitle.textContent = `Room: ${this.roomName}`;
 
-    this.#renderSelfTile();
-    this.#syncControlLabels();
+    this._renderSelfTile();
+    this._syncControlLabels();
 
     this.mesh.addEventListener("peer-added", (e) =>
-      this.#ensureTile(e.detail.peerId, e.detail.name)
+      this._ensureTile(e.detail.peerId, e.detail.name)
     );
     this.mesh.addEventListener("stream", (e) =>
-      this.#attachStream(e.detail.peerId, e.detail.stream)
+      this._attachStream(e.detail.peerId, e.detail.stream)
     );
     this.mesh.addEventListener("peer-removed", (e) =>
-      this.#removeTile(e.detail.peerId)
+      this._removeTile(e.detail.peerId)
     );
     this.mesh.addEventListener("peer-state", (e) =>
-      this.#onPeerState(e.detail.peerId, e.detail.state)
+      this._onPeerState(e.detail.peerId, e.detail.state)
     );
 
     this.signaling.addEventListener("peer-renamed", (e) => {
@@ -49,7 +49,7 @@ export class Room {
       const tile = this.grid.querySelector(`#tile-${e.detail.peerId}`);
       if (tile) {
         tile.querySelector(".label").textContent = e.detail.name;
-        tile.querySelector(".avatar").textContent = this.#initial(e.detail.name);
+        tile.querySelector(".avatar").textContent = this._initial(e.detail.name);
       }
     });
 
@@ -57,20 +57,20 @@ export class Room {
     this.micBtn.onclick = () => {
       this.micEnabled = !this.micEnabled;
       this.mesh.setTrackEnabled("audio", this.micEnabled);
-      this.#syncControlLabels();
+      this._syncControlLabels();
     };
 
     this.camBtn.onclick = () => {
       this.camEnabled = !this.camEnabled;
       this.mesh.setTrackEnabled("video", this.camEnabled);
-      this.#setPlaceholder("self", !this.camEnabled);
-      this.#syncControlLabels();
+      this._setPlaceholder("self", !this.camEnabled);
+      this._syncControlLabels();
     };
 
-    this.leaveBtn.onclick = () => this.#leave();
+    this.leaveBtn.onclick = () => this._leave();
   }
 
-  #leave() {
+  _leave() {
     this.signaling.leave();
     this.mesh.close();
 
@@ -82,7 +82,7 @@ export class Room {
     this.onLeave();
   }
 
-  #syncControlLabels() {
+  _syncControlLabels() {
     const hasMic = (this.localStream?.getAudioTracks().length ?? 0) > 0;
     const hasCam = (this.localStream?.getVideoTracks().length ?? 0) > 0;
 
@@ -94,28 +94,28 @@ export class Room {
     this.camBtn.textContent = !hasCam ? "No camera" : this.camEnabled ? "Camera on" : "Camera off";
   }
 
-  #renderSelfTile() {
+  _renderSelfTile() {
     const hasCam = (this.localStream?.getVideoTracks().length ?? 0) > 0;
-    const tile = this.#makeTile("self", `${this.selfName} (you)`, this.selfName);
+    const tile = this._makeTile("self", `${this.selfName} (you)`, this.selfName);
     tile.classList.add("self");
     const video = tile.querySelector("video");
     video.muted = true; // never play your own audio back
     video.srcObject = this.localStream;
     // Show avatar when there's no camera or it's toggled off.
-    this.#setPlaceholder("self", !hasCam || !this.camEnabled);
+    this._setPlaceholder("self", !hasCam || !this.camEnabled);
     // Self tile has no connection status.
     tile.querySelector(".badge").classList.add("hidden");
   }
 
-  #ensureTile(peerId, name) {
+  _ensureTile(peerId, name) {
     if (name) this.names.set(peerId, name);
     if (this.grid.querySelector(`#tile-${peerId}`)) return;
     const displayName = this.names.get(peerId) || "Connecting…";
-    this.#makeTile(peerId, displayName, this.names.get(peerId) || "?");
+    this._makeTile(peerId, displayName, this.names.get(peerId) || "?");
   }
 
-  #attachStream(peerId, stream) {
-    this.#ensureTile(peerId);
+  _attachStream(peerId, stream) {
+    this._ensureTile(peerId);
     const tile = this.grid.querySelector(`#tile-${peerId}`);
     if (!tile) return;
 
@@ -125,21 +125,21 @@ export class Room {
     const [vtrack] = stream.getVideoTracks();
     if (!vtrack) {
       // Peer has no camera at all — keep the avatar up.
-      this.#setPlaceholder(peerId, true);
+      this._setPlaceholder(peerId, true);
       return;
     }
     // A remote track reports "muted" when the sender disables it.
-    this.#setPlaceholder(peerId, vtrack.muted);
-    vtrack.onmute = () => this.#setPlaceholder(peerId, true);
-    vtrack.onunmute = () => this.#setPlaceholder(peerId, false);
+    this._setPlaceholder(peerId, vtrack.muted);
+    vtrack.onmute = () => this._setPlaceholder(peerId, true);
+    vtrack.onunmute = () => this._setPlaceholder(peerId, false);
   }
 
-  #removeTile(peerId) {
+  _removeTile(peerId) {
     this.grid.querySelector(`#tile-${peerId}`)?.remove();
     this.names.delete(peerId);
   }
 
-  #onPeerState(peerId, state) {
+  _onPeerState(peerId, state) {
     const badge = this.grid.querySelector(`#tile-${peerId} .badge`);
     if (!badge) return;
 
@@ -159,16 +159,16 @@ export class Room {
     badge.classList.toggle("error", state === "failed");
   }
 
-  #setPlaceholder(id, show) {
+  _setPlaceholder(id, show) {
     const ph = this.grid.querySelector(`#tile-${id} .placeholder`);
     if (ph) ph.classList.toggle("hidden", !show);
   }
 
-  #initial(name) {
+  _initial(name) {
     return (name || "?").trim().charAt(0).toUpperCase() || "?";
   }
 
-  #makeTile(id, labelText, avatarName) {
+  _makeTile(id, labelText, avatarName) {
     const tile = document.createElement("div");
     tile.className = "tile";
     tile.id = `tile-${id}`;
@@ -181,7 +181,7 @@ export class Room {
     placeholder.className = "placeholder hidden";
     const avatar = document.createElement("div");
     avatar.className = "avatar";
-    avatar.textContent = this.#initial(avatarName); // textContent avoids injection
+    avatar.textContent = this._initial(avatarName); // textContent avoids injection
     placeholder.append(avatar);
 
     const label = document.createElement("span");

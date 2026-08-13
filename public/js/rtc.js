@@ -26,10 +26,10 @@ export class Mesh extends EventTarget {
     this.peers = new Map(); // peerId -> { pc, polite, makingOffer, ignoreOffer }
     this.iceServers = null;
 
-    this.signaling.addEventListener("signal", (e) => this.#onSignal(e.detail));
+    this.signaling.addEventListener("signal", (e) => this._onSignal(e.detail));
   }
 
-  async #ensureIceServers() {
+  async _ensureIceServers() {
     if (!this.iceServers) this.iceServers = await getIceServers();
     return this.iceServers;
   }
@@ -37,7 +37,7 @@ export class Mesh extends EventTarget {
   async addPeer(peerId, name) {
     if (this.peers.has(peerId)) return;
 
-    const iceServers = await this.#ensureIceServers();
+    const iceServers = await this._ensureIceServers();
     const pc = new RTCPeerConnection({ iceServers });
     // Deterministic role: lexicographically smaller id is "polite".
     const polite = this.selfId < peerId;
@@ -112,7 +112,7 @@ export class Mesh extends EventTarget {
     this.peers.clear();
   }
 
-  async #onSignal({ from, data }) {
+  async _onSignal({ from, data }) {
     let state = this.peers.get(from);
     // A signal can arrive before we've registered the peer (race on join).
     if (!state) state = await this.addPeer(from, "");
