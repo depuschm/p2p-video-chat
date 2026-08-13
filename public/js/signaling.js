@@ -11,7 +11,7 @@ export class Signaling extends EventTarget {
     this.ws = new WebSocket(`${proto}://${location.host}`);
 
     this.ws.addEventListener("open", () => {
-      this._send({ type: "join", room, password, name });
+      this.#send({ type: "join", room, password, name });
     });
 
     this.ws.addEventListener("message", (e) => {
@@ -34,19 +34,19 @@ export class Signaling extends EventTarget {
   }
 
   signal(to, data) {
-    this._send({ type: "signal", to, data });
+    this.#send({ type: "signal", to, data });
   }
 
   rename(name) {
-    this._send({ type: "rename", name });
+    this.#send({ type: "rename", name });
   }
 
   leave() {
-    this._send({ type: "leave" });
+    this.#send({ type: "leave" });
     this.ws?.close();
   }
 
-  _send(msg) {
+  #send(msg) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }
