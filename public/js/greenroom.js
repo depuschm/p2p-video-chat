@@ -17,16 +17,18 @@ let hasCamera = false;
 let hasMic = false;
 
 // Try to get the requested devices, falling back gracefully when one
-// or both are missing. Returns a stream (possibly with only one kind of
-// track) or null when the user has no usable devices at all.
+// is missing, denied, or busy. A busy camera must not block audio, so
+// NotReadableError does not abort the fallback chain — only a denied
+// permission does. Returns a stream (possibly one kind of track) or
+// null when nothing usable is available.
 async function acquireStream({ cameraId, micId } = {}) {
   const wantVideo = { video: cameraId ? { deviceId: { exact: cameraId } } : true };
   const wantAudio = { audio: micId ? { deviceId: { exact: micId } } : true };
 
   const attempts = [
-    { ...wantVideo, ...wantAudio },
-    { ...wantVideo, audio: false },
-    { video: false, ...wantAudio },
+    { ...wantVideo, ...wantAudio }, // ideal: both
+    { video: false, ...wantAudio }, // camera busy/denied → try audio only
+    { ...wantVideo, audio: false }, // mic busy/denied → try video only
   ];
 
   let lastErr = null;
@@ -35,13 +37,13 @@ async function acquireStream({ cameraId, micId } = {}) {
       return await navigator.mediaDevices.getUserMedia(constraints);
     } catch (err) {
       lastErr = err;
-      // Denied permission or device busy won't be fixed by weaker
-      // constraints — surface those immediately.
-      if (err.name === "NotAllowedError" || err.name === "NotReadableError") {
-        throw err;
-      }
+      // Denied permission won't be fixed by weaker constraints — stop now.
+      // NotReadableError (device busy) only affects that one device, so
+      // keep trying the remaining combinations.
+      if (err.name === "NotAllowedError") throw err;
     }
   }
+
   if (lastErr && lastErr.name !== "NotFoundError") throw lastErr;
   return null;
 }
@@ -203,7 +205,7 @@ async function init() {
       err.name === "NotAllowedError"
         ? "Permission denied. Allow camera/mic (address-bar icon + macOS Privacy settings) and reload."
         : err.name === "NotReadableError"
-          ? "Device is in use by another app. Close Zoom/Teams/etc. and reload."
+          ? "Camera and mic are both in use by another app. Close other video apps and reload."
           : `Media error: ${err.name || err.message}`
     );
     joinBtn.disabled = false;
@@ -216,7 +218,14 @@ async function init() {
     console.error("populateDevices failed:", err);
   }
 
-  setStatus(stream ? null : "No usable devices — you can still join to watch and listen.");
+  if (!stream) {
+    setStatus("No usable devices — you can still join to watch and listen.");
+  } else if (!hasCamera) {
+    setStatus("Camera unavailable (in use or blocked) — joining with audio only. Free the camera and reload to enable video.");
+  } else {
+    setStatus(null);
+  }
+
   joinBtn.disabled = false;
 }
 
