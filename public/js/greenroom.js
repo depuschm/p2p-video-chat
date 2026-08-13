@@ -1,4 +1,6 @@
 import { Signaling } from "./signaling.js";
+import { Mesh } from "./rtc.js";
+import { Room } from "./room.js";
 
 const preview = document.getElementById("preview");
 const previewStatus = document.getElementById("previewStatus");
@@ -172,24 +174,31 @@ joinForm.addEventListener("submit", (e) => {
   signaling.connect(config);
 
   signaling.addEventListener("joined", (ev) => {
-    const { peers } = ev.detail;
-    setStatus(`Joined "${config.room}". Peers already here: ${peers.length}`);
-    console.log("Joined. Existing peers:", peers);
-    // TODO step 3: create RTCPeerConnection to each existing peer.
-  });
+    const { peerId: selfId, peers } = ev.detail;
 
-  signaling.addEventListener("peer-joined", (ev) => {
-    console.log("Peer joined:", ev.detail);
-    // TODO step 3: expect an offer / prepare to answer.
-  });
+    const mesh = new Mesh({ signaling, localStream: stream, selfId });
+    const room = new Room({
+      mesh,
+      signaling,
+      localStream: stream,
+      selfName: config.name,
+      roomName: config.room,
+    });
+    room.enter(micEnabled, camEnabled);
 
-  signaling.addEventListener("peer-left", (ev) => {
-    console.log("Peer left:", ev.detail.peerId);
-  });
+    // Connect to everyone already in the room. onnegotiationneeded on
+    // the impolite side kicks off the offer automatically.
+    for (const p of peers) {
+      mesh.addPeer(p.peerId, p.name);
+    }
 
-  signaling.addEventListener("signal", (ev) => {
-    console.log("Signal from", ev.detail.from, ev.detail.data);
-    // TODO step 3: feed into the matching RTCPeerConnection.
+    // New arrivals after us.
+    signaling.addEventListener("peer-joined", (e2) => {
+      mesh.addPeer(e2.detail.peerId, e2.detail.name);
+    });
+    signaling.addEventListener("peer-left", (e2) => {
+      mesh.removePeer(e2.detail.peerId);
+    });
   });
 
   signaling.addEventListener("error", (ev) => {

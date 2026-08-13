@@ -50,6 +50,18 @@
       </form>
     </main>
 
+    <section class="room hidden" id="room">
+      <header class="room-bar">
+        <span id="roomTitle" class="room-title"></span>
+        <div class="room-controls">
+          <button id="roomMic" class="toggle" type="button" aria-pressed="true">Mic on</button>
+          <button id="roomCam" class="toggle" type="button" aria-pressed="true">Camera on</button>
+          <button id="leaveBtn" class="leave-btn" type="button">Leave</button>
+        </div>
+      </header>
+      <div id="grid" class="grid"></div>
+    </section>
+
     <script type="module" src="/js/greenroom.js"></script>
   </body>
 </html>
