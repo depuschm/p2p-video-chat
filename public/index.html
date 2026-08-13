@@ -6,6 +6,19 @@
     <title>p2p-video-chat</title>
     <link rel="stylesheet" href="/css/style.css" />
   </head>
+  <!-- TEMP debug: remove once TV issue is resolved -->
+  <script>
+    window.addEventListener("error", function (e) {
+      var box = document.createElement("pre");
+      box.style.cssText =
+        "position:fixed;inset:0;z-index:9999;margin:0;padding:1rem;" +
+        "background:#000;color:#0f0;font-size:20px;white-space:pre-wrap;overflow:auto";
+      box.textContent =
+        "ERROR: " + (e.message || e.error) + "\n" +
+        "at " + (e.filename || "?") + ":" + (e.lineno || "?") + ":" + (e.colno || "?");
+      document.body.appendChild(box);
+    });
+  </script>
   <body>
     <main class="green-room" id="greenRoom">
       <h1>Join a room</h1>
