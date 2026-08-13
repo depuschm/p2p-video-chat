@@ -20,8 +20,6 @@ let camEnabled = true;
 let hasCamera = false;
 let hasMic = false;
 
-const signaling = new Signaling();
-
 // Try to get the requested devices, falling back gracefully when one
 // is missing, denied, or busy. A busy camera must not block audio, so
 // NotReadableError does not abort the fallback chain — only a denied
@@ -171,6 +169,9 @@ joinForm.addEventListener("submit", (e) => {
   setStatus("Connecting…");
   joinBtn.disabled = true;
 
+  // Fresh signaling per join so event listeners don't accumulate across
+  // leave/rejoin cycles.
+  const signaling = new Signaling();
   signaling.connect(config);
 
   signaling.addEventListener("joined", (ev) => {
@@ -183,6 +184,10 @@ joinForm.addEventListener("submit", (e) => {
       localStream: stream,
       selfName: config.name,
       roomName: config.room,
+      onLeave: () => {
+        joinBtn.disabled = false;
+        setStatus(null);
+      },
     });
     room.enter(micEnabled, camEnabled);
 

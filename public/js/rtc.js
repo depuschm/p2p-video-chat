@@ -77,14 +77,13 @@ export class Mesh extends EventTarget {
       }
     };
 
+    // Report every connection-state change so the UI can show status.
     pc.onconnectionstatechange = () => {
-      if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
-        this.dispatchEvent(
-          new CustomEvent("peer-state", {
-            detail: { peerId, state: pc.connectionState },
-          })
-        );
-      }
+      this.dispatchEvent(
+        new CustomEvent("peer-state", {
+          detail: { peerId, state: pc.connectionState },
+        })
+      );
     };
 
     return state;

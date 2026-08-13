@@ -201,6 +201,33 @@ h1 {
   transform: scaleX(-1);
 }
 
+.tile .placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+}
+
+.tile .placeholder.hidden {
+  display: none;
+}
+
+.tile .placeholder .avatar {
+  width: 28%;
+  max-width: 84px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
 .tile .label {
   position: absolute;
   left: 0.5rem;
@@ -216,5 +243,17 @@ h1 {
   right: 0.5rem;
   top: 0.5rem;
   font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
   color: var(--muted);
+}
+
+.tile .badge.hidden {
+  display: none;
+}
+
+.tile .badge.error {
+  color: #fff;
+  background: var(--danger);
 }
