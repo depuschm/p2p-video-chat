@@ -225,23 +225,23 @@ joinForm.addEventListener("submit", (e) => {
 });
 
 async function init() {
+  // Media is best-effort — a watch/listen-only join is always valid, so
+  // never gate Join on device acquisition. TV/kiosk browsers may report
+  // phantom devices or hang in getUserMedia; joining must still work.
+  joinBtn.disabled = false;
+  reflectDeviceAvailability();
+
   if (!navigator.mediaDevices?.getUserMedia) {
-    setStatus("No media access — the page must be on https:// or localhost.");
-    joinBtn.disabled = false;
+    setStatus("This browser can't access a camera or mic — you can still join to watch and listen.");
     return;
   }
 
-  // Report what the browser sees before requesting permission.
   try {
     const pre = await navigator.mediaDevices.enumerateDevices();
     const cams = pre.filter((d) => d.kind === "videoinput").length;
     const mics = pre.filter((d) => d.kind === "audioinput").length;
-    console.log("Devices before permission:", pre);
     if (cams === 0 && mics === 0) {
-      setStatus(
-        "Browser sees no camera or mic. Check macOS Privacy settings for this browser, then reload. You can still join to watch/listen."
-      );
-      joinBtn.disabled = false;
+      setStatus("No camera or mic detected — you can still join to watch and listen.");
       return;
     }
     setStatus(`Detected ${cams} camera(s), ${mics} mic(s). Requesting access…`);
@@ -255,12 +255,11 @@ async function init() {
     console.error("getStream failed:", err);
     setStatus(
       err.name === "NotAllowedError"
-        ? "Permission denied. Allow camera/mic (address-bar icon + macOS Privacy settings) and reload."
+        ? "Permission denied. Allow camera/mic and reload, or join now to watch and listen."
         : err.name === "NotReadableError"
-          ? "Camera and mic are both in use by another app. Close other video apps and reload."
-          : `Media error: ${err.name || err.message}`
+          ? "Camera and mic are in use by another app — join to watch and listen, or free them and reload."
+          : `Media unavailable (${err.name || err.message}) — you can still join to watch and listen.`
     );
-    joinBtn.disabled = false;
     return;
   }
 
@@ -277,8 +276,6 @@ async function init() {
   } else {
     setStatus(null);
   }
-
-  joinBtn.disabled = false;
 }
 
 navigator.mediaDevices?.addEventListener?.("devicechange", () => {
