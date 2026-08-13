@@ -1,3 +1,5 @@
+import { Signaling } from "./signaling.js";
+
 const preview = document.getElementById("preview");
 const previewStatus = document.getElementById("previewStatus");
 const toggleMicBtn = document.getElementById("toggleMic");
@@ -15,6 +17,8 @@ let micEnabled = true;
 let camEnabled = true;
 let hasCamera = false;
 let hasMic = false;
+
+const signaling = new Signaling();
 
 // Try to get the requested devices, falling back gracefully when one
 // is missing, denied, or busy. A busy camera must not block audio, so
@@ -157,19 +161,53 @@ joinForm.addEventListener("submit", (e) => {
   e.preventDefault();
 
   const config = {
-    name: nameInput.value.trim(),
+    name: nameInput.value.trim() || "Guest",
     room: roomInput.value.trim(),
     password: passwordInput.value,
-    micEnabled,
-    camEnabled,
-    cameraId: cameraSelect.value || null,
-    micId: micSelect.value || null,
-    hasCamera,
-    hasMic,
   };
 
-  console.log("Joining with config:", { ...config, password: "***" });
-  setStatus("Joining… (signaling not implemented yet — step 2)");
+  setStatus("Connecting…");
+  joinBtn.disabled = true;
+
+  signaling.connect(config);
+
+  signaling.addEventListener("joined", (ev) => {
+    const { peers } = ev.detail;
+    setStatus(`Joined "${config.room}". Peers already here: ${peers.length}`);
+    console.log("Joined. Existing peers:", peers);
+    // TODO step 3: create RTCPeerConnection to each existing peer.
+  });
+
+  signaling.addEventListener("peer-joined", (ev) => {
+    console.log("Peer joined:", ev.detail);
+    // TODO step 3: expect an offer / prepare to answer.
+  });
+
+  signaling.addEventListener("peer-left", (ev) => {
+    console.log("Peer left:", ev.detail.peerId);
+  });
+
+  signaling.addEventListener("signal", (ev) => {
+    console.log("Signal from", ev.detail.from, ev.detail.data);
+    // TODO step 3: feed into the matching RTCPeerConnection.
+  });
+
+  signaling.addEventListener("error", (ev) => {
+    const err = ev.detail.error;
+    setStatus(
+      err === "bad-password"
+        ? "Wrong room password."
+        : err === "rate-limited"
+          ? `Too many attempts. Try again in ${Math.ceil(ev.detail.retryAfterMs / 1000)}s.`
+          : `Join failed: ${err}`
+    );
+    joinBtn.disabled = false;
+  });
+
+  signaling.addEventListener("closed", () => {
+    setStatus("Disconnected.");
+    joinBtn.disabled = false;
+  });
 });
 
 async function init() {
