@@ -1,0 +1,14 @@
+{
+  "name": "p2p-video-chat",
+  "version": "0.1.0",
+  "description": "Minimal peer-to-peer video/audio chat over WebRTC — password-protected rooms, no database, no accounts.",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}

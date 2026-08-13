@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>p2p-video-chat</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <main class="green-room" id="greenRoom">
+      <h1>Join a room</h1>
+
+      <div class="preview-wrap">
+        <video id="preview" autoplay playsinline muted></video>
+        <p id="previewStatus" class="preview-status">Requesting camera and microphone…</p>
+      </div>
+
+      <div class="controls">
+        <button id="toggleMic" class="toggle" type="button" aria-pressed="true">
+          Mic on
+        </button>
+        <button id="toggleCam" class="toggle" type="button" aria-pressed="true">
+          Camera on
+        </button>
+      </div>
+
+      <form id="joinForm" class="join-form" autocomplete="off">
+        <label>
+          Your name
+          <input id="nameInput" type="text" maxlength="40" required placeholder="e.g. Alex" />
+        </label>
+
+        <label>
+          Room name
+          <input id="roomInput" type="text" maxlength="60" required placeholder="e.g. team-standup" />
+        </label>
+
+        <label>
+          Room password
+          <input id="passwordInput" type="password" maxlength="128" required />
+        </label>
+
+        <label>
+          Camera
+          <select id="cameraSelect"></select>
+        </label>
+
+        <label>
+          Microphone
+          <select id="micSelect"></select>
+        </label>
+
+        <button id="joinBtn" class="join-btn" type="submit" disabled>Join</button>
+      </form>
+    </main>
+
+    <script type="module" src="/js/greenroom.js"></script>
+  </body>
+</html>
