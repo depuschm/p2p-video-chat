@@ -1,0 +1,13 @@
+[Unit]
+Description=p2p-video-chat signaling server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/p2p-video-chat
+ExecStart=/usr/bin/node --env-file=.env server/index.js
+Restart=on-failure
+User=www-data
+
+[Install]
+WantedBy=multi-user.target

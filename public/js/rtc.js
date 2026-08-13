@@ -1,5 +1,19 @@
-// Public STUN for dev. TURN gets added at step 5 for cross-network use.
-const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+// Fetch ICE servers (STUN + short-lived TURN) from our server once,
+// and reuse for all peer connections in this session.
+let iceServersPromise = null;
+
+function getIceServers() {
+  if (!iceServersPromise) {
+    iceServersPromise = fetch("/ice")
+      .then((r) => r.json())
+      .then((d) => d.iceServers)
+      .catch((err) => {
+        console.error("Failed to fetch ICE config, falling back to STUN:", err);
+        return [{ urls: "stun:stun.l.google.com:19302" }];
+      });
+  }
+  return iceServersPromise;
+}
 
 // Manages a mesh of peer connections, one per remote peer, using the
 // perfect-negotiation pattern to avoid offer glare.
@@ -10,30 +24,33 @@ export class Mesh extends EventTarget {
     this.localStream = localStream;
     this.selfId = selfId;
     this.peers = new Map(); // peerId -> { pc, polite, makingOffer, ignoreOffer }
+    this.iceServers = null;
 
     this.signaling.addEventListener("signal", (e) => this.#onSignal(e.detail));
   }
 
-  // Add a peer and, if we're the impolite side, start negotiation.
-  addPeer(peerId, name) {
+  async #ensureIceServers() {
+    if (!this.iceServers) this.iceServers = await getIceServers();
+    return this.iceServers;
+  }
+
+  async addPeer(peerId, name) {
     if (this.peers.has(peerId)) return;
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    // Deterministic role: lexicographically larger id is "impolite"
-    // (the one that pushes offers through on collision).
+    const iceServers = await this.#ensureIceServers();
+    const pc = new RTCPeerConnection({ iceServers });
+    // Deterministic role: lexicographically smaller id is "polite".
     const polite = this.selfId < peerId;
     const state = { pc, polite, makingOffer: false, ignoreOffer: false };
     this.peers.set(peerId, state);
 
     this.dispatchEvent(new CustomEvent("peer-added", { detail: { peerId, name } }));
 
-    // Send whatever local tracks we have (may be none — receive-only).
     if (this.localStream) {
       for (const track of this.localStream.getTracks()) {
         pc.addTrack(track, this.localStream);
       }
     } else {
-      // No local media: still want to receive audio and video.
       pc.addTransceiver("audio", { direction: "recvonly" });
       pc.addTransceiver("video", { direction: "recvonly" });
     }
@@ -45,9 +62,7 @@ export class Mesh extends EventTarget {
     };
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        this.signaling.signal(peerId, { candidate });
-      }
+      if (candidate) this.signaling.signal(peerId, { candidate });
     };
 
     pc.onnegotiationneeded = async () => {
@@ -101,7 +116,7 @@ export class Mesh extends EventTarget {
   async #onSignal({ from, data }) {
     let state = this.peers.get(from);
     // A signal can arrive before we've registered the peer (race on join).
-    if (!state) state = this.addPeer(from, "");
+    if (!state) state = await this.addPeer(from, "");
 
     const { pc, polite } = state;
 

@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { checkRoomPassword } from "./rooms.js";
 import { rateLimiter } from "./rateLimit.js";
+import { getIceServers } from "./turn.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ?? 3000;
@@ -13,6 +14,12 @@ const PORT = process.env.PORT ?? 3000;
 const app = express();
 app.use(express.static(join(__dirname, "..", "public")));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
+// Hands short-lived ICE/TURN config to clients. No secrets leave the
+// server — only a time-limited HMAC credential the browser can use.
+app.get("/ice", (_req, res) => {
+  res.json({ iceServers: getIceServers() });
+});
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
