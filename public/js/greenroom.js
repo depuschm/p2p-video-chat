@@ -74,7 +74,10 @@ function applyToggleState() {
   stream.getVideoTracks().forEach((t) => (t.enabled = camEnabled));
 }
 
-// Keep the UI honest about which devices actually exist.
+// Keep the UI honest about which devices actually exist. Only forces the
+// enabled flag to false when the device is absent — never flips a present
+// device off, so this is safe to call after acquisition without undoing
+// the user's default-on intent.
 function reflectDeviceAvailability() {
   toggleCamBtn.disabled = !hasCamera;
   toggleMicBtn.disabled = !hasMic;
@@ -226,12 +229,12 @@ joinForm.addEventListener("submit", (e) => {
 
 async function init() {
   // Media is best-effort — a watch/listen-only join is always valid, so
-  // never gate Join on device acquisition. TV/kiosk browsers may report
-  // phantom devices or hang in getUserMedia; joining must still work.
+  // never gate Join on device acquisition. Enable it up front; nothing
+  // in the media flow below should ever be able to lock the user out.
   joinBtn.disabled = false;
-  reflectDeviceAvailability();
 
   if (!navigator.mediaDevices?.getUserMedia) {
+    reflectDeviceAvailability();
     setStatus("This browser can't access a camera or mic — you can still join to watch and listen.");
     return;
   }
@@ -241,6 +244,7 @@ async function init() {
     const cams = pre.filter((d) => d.kind === "videoinput").length;
     const mics = pre.filter((d) => d.kind === "audioinput").length;
     if (cams === 0 && mics === 0) {
+      reflectDeviceAvailability();
       setStatus("No camera or mic detected — you can still join to watch and listen.");
       return;
     }
@@ -253,6 +257,7 @@ async function init() {
     await getStream();
   } catch (err) {
     console.error("getStream failed:", err);
+    reflectDeviceAvailability();
     setStatus(
       err.name === "NotAllowedError"
         ? "Permission denied. Allow camera/mic and reload, or join now to watch and listen."
