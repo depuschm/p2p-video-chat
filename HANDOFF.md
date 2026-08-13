@@ -63,6 +63,10 @@ npm install
 cp .env.example .env   # set ROOM_PASSWORD, leave TURN_* blank for local
 npm start
 # open two tabs at http://localhost:3000, join the same room
+# To test on other devices, expose it over HTTPS with a Cloudflare quick
+# tunnel: cloudflared tunnel --url http://localhost:3000
+# (see README "Testing on other devices"). Same-wifi calls work on STUN;
+# cross-network needs TURN.
 ```
 
 ## What's done and working

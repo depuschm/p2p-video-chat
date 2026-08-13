@@ -51,6 +51,55 @@ another device on the same network) and join the same room to connect.
 HTTPS for local testing. Testing across machines or over the internet
 requires HTTPS/WSS and TURN — see the deployment guide.
 
+## Testing on other devices (quick tunnel)
+
+`getUserMedia` needs a secure origin, so a plain-HTTP LAN address like
+`http://192.168.x.x:3000` won't work on a phone or second machine — the
+browser blocks camera/mic access. The quickest way to get a real HTTPS
+URL for testing is a Cloudflare quick tunnel (no account, no config).
+
+Install cloudflared using whichever fits your OS:
+
+```bash
+# macOS
+brew install cloudflared
+
+# Windows
+winget install --id Cloudflare.cloudflared
+
+# Linux (Debian/Ubuntu) — download the official .deb, then install
+curl -L --output cloudflared.deb \
+  https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared.deb
+```
+
+Prefer the OS package managers above — they install Cloudflare's official
+self-contained binary. There's also a third-party npm wrapper
+(`npm install -g cloudflared`), but it downloads the binary via a
+postinstall script, which fails silently in npm setups that block install
+scripts. Only reach for it if the options above aren't available.
+
+With the app already running (`npm start`), open a second terminal and
+point a tunnel at port 3000:
+
+```bash
+cloudflared tunnel --url http://localhost:3000
+```
+
+cloudflared prints a random `https://<something>.trycloudflare.com` URL.
+Open it on any device to test. Notes:
+
+- The URL is temporary and public — a new one is minted each run and it
+  dies when you stop cloudflared. Room access is still gated by
+  `ROOM_PASSWORD`, so keep it set to a real value.
+- Signaling works as-is: the page loads over HTTPS, so the client uses
+  `wss://` and Cloudflare proxies the WebSocket upgrade transparently.
+- WebRTC media is peer-to-peer and does **not** flow through the tunnel.
+  Devices on the same wifi connect fine over STUN. Cross-network calls
+  (e.g. phone on cellular) may fail without TURN — that's the deployed
+  coturn setup in [deploy/DEPLOY.md](deploy/DEPLOY.md), not something the
+  tunnel provides.
+
 ## Configuration
 
 All configuration is via environment variables in a local `.env` file
