@@ -7,6 +7,9 @@ Participants connect directly to each other (WebRTC mesh); the server
 only does signaling and issuing short-lived TURN credentials. Room state
 lives in memory, so there's nothing to set up beyond a room password.
 
+![p2p-video-chat — room with chat panel and screen sharing](assets/screenshot1.png)
+![p2p-video-chat — room with chat panel and screen sharing](assets/screenshot2.png)
+
 ## Features
 
 - Password-protected rooms (single shared password, no user accounts)
