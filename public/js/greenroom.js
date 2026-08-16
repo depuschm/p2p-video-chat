@@ -207,6 +207,28 @@ joinForm.addEventListener("submit", (e) => {
     signaling.addEventListener("peer-left", (e2) => {
       mesh.removePeer(e2.detail.peerId);
     });
+
+    // Signaling socket dropped — show progress while it backs off.
+    signaling.addEventListener("reconnecting", (e2) => {
+      room.setConnectionStatus(`Reconnecting… (attempt ${e2.detail.attempt})`);
+    });
+
+    // Socket came back. The server issued a new self id and the old peer
+    // connections are dead, so reset the mesh and re-add current peers.
+    signaling.addEventListener("rejoined", (e2) => {
+      mesh.reset(e2.detail.peerId);
+      room.clearRemoteTiles();
+      room.setConnectionStatus("");
+      for (const p of e2.detail.peers) {
+        mesh.addPeer(p.peerId, p.name);
+      }
+    });
+
+    // Gave up reconnecting — return to the green room.
+    signaling.addEventListener("reconnect-failed", () => {
+      room.setConnectionStatus("Disconnected — couldn't reconnect.");
+      room.forceLeave();
+    });
   });
 
   signaling.addEventListener("error", (ev) => {

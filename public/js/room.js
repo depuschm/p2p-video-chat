@@ -11,6 +11,7 @@ export class Room {
     this.roomEl = document.getElementById("room");
     this.greenRoomEl = document.getElementById("greenRoom");
     this.roomTitle = document.getElementById("roomTitle");
+    this.roomStatus = document.getElementById("roomStatus");
     this.micBtn = document.getElementById("roomMic");
     this.camBtn = document.getElementById("roomCam");
     this.leaveBtn = document.getElementById("leaveBtn");
@@ -27,6 +28,7 @@ export class Room {
     this.greenRoomEl.classList.add("hidden");
     this.roomEl.classList.remove("hidden");
     this.roomTitle.textContent = `Room: ${this.roomName}`;
+    this.setConnectionStatus("");
 
     this.#renderSelfTile();
     this.#syncControlLabels();
@@ -70,12 +72,37 @@ export class Room {
     this.leaveBtn.onclick = () => this.#leave();
   }
 
+  // Show/clear a transient status line in the room bar (e.g. reconnecting).
+  setConnectionStatus(text) {
+    if (!this.roomStatus) return;
+    this.roomStatus.textContent = text;
+    this.roomStatus.classList.toggle("hidden", !text);
+  }
+
+  // Remove every remote tile but keep the self tile. Used when a signaling
+  // reconnect resets the mesh and peers will be re-added fresh.
+  clearRemoteTiles() {
+    this.grid.querySelectorAll(".tile:not(.self)").forEach((t) => t.remove());
+    this.names.clear();
+  }
+
+  // Exit without sending a leave message — the socket is already gone
+  // (used after reconnection has been given up on).
+  forceLeave() {
+    this.#teardown();
+  }
+
   #leave() {
     this.signaling.leave();
+    this.#teardown();
+  }
+
+  #teardown() {
     this.mesh.close();
 
     this.grid.innerHTML = "";
     this.names.clear();
+    this.setConnectionStatus("");
     this.roomEl.classList.add("hidden");
     this.greenRoomEl.classList.remove("hidden");
 
@@ -151,12 +178,12 @@ export class Room {
           : state === "disconnected"
             ? "reconnecting…"
             : state === "failed"
-              ? "connection failed"
+              ? "reconnecting…"
               : "";
 
     badge.textContent = text;
     badge.classList.toggle("hidden", text === "");
-    badge.classList.toggle("error", state === "failed");
+    badge.classList.toggle("error", false);
   }
 
   #setPlaceholder(id, show) {

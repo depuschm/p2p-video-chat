@@ -2,6 +2,10 @@
 // and reuse for all peer connections in this session.
 let iceServersPromise = null;
 
+// How long to let a "disconnected" connection try to recover on its own
+// before forcing an ICE restart. "failed" restarts immediately.
+const DISCONNECT_GRACE_MS = 2000;
+
 function getIceServers() {
   if (!iceServersPromise) {
     iceServersPromise = fetch("/ice")
@@ -23,7 +27,7 @@ export class Mesh extends EventTarget {
     this.signaling = signaling;
     this.localStream = localStream;
     this.selfId = selfId;
-    this.peers = new Map(); // peerId -> { pc, polite, makingOffer, ignoreOffer }
+    this.peers = new Map(); // peerId -> { pc, polite, makingOffer, ignoreOffer, disconnectTimer }
     this.iceServers = null;
 
     this.signaling.addEventListener("signal", (e) => this.#onSignal(e.detail));
@@ -41,7 +45,13 @@ export class Mesh extends EventTarget {
     const pc = new RTCPeerConnection({ iceServers });
     // Deterministic role: lexicographically smaller id is "polite".
     const polite = this.selfId < peerId;
-    const state = { pc, polite, makingOffer: false, ignoreOffer: false };
+    const state = {
+      pc,
+      polite,
+      makingOffer: false,
+      ignoreOffer: false,
+      disconnectTimer: null,
+    };
     this.peers.set(peerId, state);
 
     this.dispatchEvent(new CustomEvent("peer-added", { detail: { peerId, name } }));
@@ -77,21 +87,49 @@ export class Mesh extends EventTarget {
       }
     };
 
-    // Report every connection-state change so the UI can show status.
+    // Report every connection-state change so the UI can show status, and
+    // actively recover a dropped path via ICE restart.
     pc.onconnectionstatechange = () => {
+      const cs = pc.connectionState;
       this.dispatchEvent(
-        new CustomEvent("peer-state", {
-          detail: { peerId, state: pc.connectionState },
-        })
+        new CustomEvent("peer-state", { detail: { peerId, state: cs } })
       );
+
+      if (cs === "failed") {
+        this.#restartIce(peerId);
+      } else if (cs === "disconnected") {
+        // A disconnect often heals itself (NAT rebinding, brief loss).
+        // Wait a beat before forcing a restart to avoid churn.
+        clearTimeout(state.disconnectTimer);
+        state.disconnectTimer = setTimeout(() => {
+          if (pc.connectionState === "disconnected") this.#restartIce(peerId);
+        }, DISCONNECT_GRACE_MS);
+      } else if (cs === "connected") {
+        clearTimeout(state.disconnectTimer);
+        state.disconnectTimer = null;
+      }
     };
 
     return state;
   }
 
+  // Trigger an ICE restart. restartIce() flags fresh ICE credentials and
+  // fires onnegotiationneeded, which sends a new offer. Only the impolite
+  // peer drives it so both sides don't restart at once.
+  #restartIce(peerId) {
+    const state = this.peers.get(peerId);
+    if (!state || state.polite) return;
+    try {
+      state.pc.restartIce();
+    } catch (err) {
+      console.error("ICE restart failed", err);
+    }
+  }
+
   removePeer(peerId) {
     const state = this.peers.get(peerId);
     if (!state) return;
+    clearTimeout(state.disconnectTimer);
     state.pc.close();
     this.peers.delete(peerId);
     this.dispatchEvent(new CustomEvent("peer-removed", { detail: { peerId } }));
@@ -107,8 +145,19 @@ export class Mesh extends EventTarget {
     tracks.forEach((t) => (t.enabled = enabled));
   }
 
+  // After a signaling reconnect the server issues a new self id and the
+  // old peer connections are stale. Drop them all and adopt the new id;
+  // the caller then re-adds the current peers.
+  reset(newSelfId) {
+    this.close();
+    this.selfId = newSelfId;
+  }
+
   close() {
-    for (const [, state] of this.peers) state.pc.close();
+    for (const [, state] of this.peers) {
+      clearTimeout(state.disconnectTimer);
+      state.pc.close();
+    }
     this.peers.clear();
   }
 
