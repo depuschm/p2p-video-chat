@@ -8,8 +8,8 @@ export class Signaling extends EventTarget {
     this.ws = null;
     this.peerId = null;
     this.config = null;
-    this.hasJoined = false;       // first successful join happened
-    this.intentionalClose = false; // user pressed Leave — don't reconnect
+    this.hasJoined = false;
+    this.intentionalClose = false;
     this.reconnectAttempts = 0;
     this.reconnectTimer = null;
   }
@@ -101,6 +101,10 @@ export class Signaling extends EventTarget {
 
   rename(name) {
     this.#send({ type: "rename", name });
+  }
+
+  sendChat(text) {
+    this.#send({ type: "chat", text });
   }
 
   leave() {

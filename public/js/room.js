@@ -14,11 +14,17 @@ export class Room {
     this.roomStatus = document.getElementById("roomStatus");
     this.micBtn = document.getElementById("roomMic");
     this.camBtn = document.getElementById("roomCam");
+    this.shareBtn = document.getElementById("roomShare");
     this.leaveBtn = document.getElementById("leaveBtn");
+    this.chatLog = document.getElementById("chatLog");
+    this.chatForm = document.getElementById("chatForm");
+    this.chatInput = document.getElementById("chatInput");
 
-    this.names = new Map(); // peerId -> name
+    this.names = new Map();
     this.micEnabled = false;
     this.camEnabled = false;
+    this.sharing = false;
+    this.screenStream = null;
   }
 
   enter(initialMic, initialCam) {
@@ -32,6 +38,14 @@ export class Room {
 
     this.#renderSelfTile();
     this.#syncControlLabels();
+
+    if (this.shareBtn) {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        this.shareBtn.disabled = true;
+        this.shareBtn.dataset.unsupported = "1";
+      }
+      this.#syncShareLabel();
+    }
 
     this.mesh.addEventListener("peer-added", (e) =>
       this.#ensureTile(e.detail.peerId, e.detail.name)
@@ -55,7 +69,8 @@ export class Room {
       }
     });
 
-    // .onclick (not addEventListener) so repeat joins don't stack handlers.
+    this.signaling.addEventListener("chat", (e) => this.#appendChat(e.detail));
+
     this.micBtn.onclick = () => {
       this.micEnabled = !this.micEnabled;
       this.mesh.setTrackEnabled("audio", this.micEnabled);
@@ -68,6 +83,18 @@ export class Room {
       this.#setPlaceholder("self", !this.camEnabled);
       this.#syncControlLabels();
     };
+
+    if (this.shareBtn) this.shareBtn.onclick = () => this.#toggleShare();
+
+    if (this.chatForm) {
+      this.chatForm.onsubmit = (e) => {
+        e.preventDefault();
+        const text = this.chatInput.value.trim();
+        if (!text) return;
+        this.signaling.sendChat(text);
+        this.chatInput.value = "";
+      };
+    }
 
     this.leaveBtn.onclick = () => this.#leave();
   }
@@ -100,7 +127,12 @@ export class Room {
   #teardown() {
     this.mesh.close();
 
+    this.screenStream?.getTracks().forEach((t) => t.stop());
+    this.screenStream = null;
+    this.sharing = false;
+
     this.grid.innerHTML = "";
+    if (this.chatLog) this.chatLog.innerHTML = "";
     this.names.clear();
     this.setConnectionStatus("");
     this.roomEl.classList.add("hidden");
@@ -109,12 +141,75 @@ export class Room {
     this.onLeave();
   }
 
+  async #toggleShare() {
+    if (this.sharing) return this.#stopShare();
+
+    let display;
+    try {
+      display = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    } catch {
+      return;
+    }
+
+    const track = display.getVideoTracks()[0];
+    if (!track) {
+      display.getTracks().forEach((t) => t.stop());
+      return;
+    }
+
+    this.screenStream = display;
+    this.sharing = true;
+
+    await this.mesh.setVideoTrack(track);
+    this.#showSelfVideo(display, false);
+    this.#setPlaceholder("self", false);
+
+    track.onended = () => this.#stopShare();
+
+    this.#syncShareLabel();
+    this.#syncControlLabels();
+  }
+
+  async #stopShare() {
+    if (!this.sharing) return;
+    this.sharing = false;
+
+    this.screenStream?.getTracks().forEach((t) => t.stop());
+    this.screenStream = null;
+
+    const camTrack = this.localStream?.getVideoTracks()[0] ?? null;
+    await this.mesh.setVideoTrack(camTrack);
+
+    this.#showSelfVideo(this.localStream, true);
+    this.#setPlaceholder("self", !camTrack || !this.camEnabled);
+
+    this.#syncShareLabel();
+    this.#syncControlLabels();
+  }
+
+  #showSelfVideo(stream, mirror) {
+    const tile = this.grid.querySelector("#tile-self");
+    if (!tile) return;
+    tile.querySelector("video").srcObject = stream;
+    tile.classList.toggle("no-mirror", !mirror);
+  }
+
+  #syncShareLabel() {
+    if (!this.shareBtn) return;
+    if (this.shareBtn.dataset.unsupported) {
+      this.shareBtn.textContent = "Share n/a";
+      return;
+    }
+    this.shareBtn.textContent = this.sharing ? "Stop sharing" : "Share screen";
+    this.shareBtn.setAttribute("aria-pressed", String(this.sharing));
+  }
+
   #syncControlLabels() {
     const hasMic = (this.localStream?.getAudioTracks().length ?? 0) > 0;
     const hasCam = (this.localStream?.getVideoTracks().length ?? 0) > 0;
 
     this.micBtn.disabled = !hasMic;
-    this.camBtn.disabled = !hasCam;
+    this.camBtn.disabled = !hasCam || this.sharing;
     this.micBtn.setAttribute("aria-pressed", String(this.micEnabled && hasMic));
     this.camBtn.setAttribute("aria-pressed", String(this.camEnabled && hasCam));
     this.micBtn.textContent = !hasMic ? "No mic" : this.micEnabled ? "Mic on" : "Mic off";
@@ -191,6 +286,31 @@ export class Room {
     if (ph) ph.classList.toggle("hidden", !show);
   }
 
+  #appendChat({ peerId, name, text, ts }) {
+    if (!this.chatLog) return;
+    const mine = peerId === this.mesh.selfId;
+
+    const row = document.createElement("div");
+    row.className = mine ? "chat-msg self" : "chat-msg";
+
+    const meta = document.createElement("span");
+    meta.className = "chat-meta";
+    const who = mine ? "You" : name || "Guest";
+    const time = new Date(ts ?? Date.now()).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    meta.textContent = `${who} · ${time}`;
+
+    const body = document.createElement("div");
+    body.className = "chat-text";
+    body.textContent = text;
+
+    row.append(meta, body);
+    this.chatLog.append(row);
+    this.chatLog.scrollTop = this.chatLog.scrollHeight;
+  }
+
   #initial(name) {
     return (name || "?").trim().charAt(0).toUpperCase() || "?";
   }
@@ -208,7 +328,7 @@ export class Room {
     placeholder.className = "placeholder hidden";
     const avatar = document.createElement("div");
     avatar.className = "avatar";
-    avatar.textContent = this.#initial(avatarName); // textContent avoids injection
+    avatar.textContent = this.#initial(avatarName);
     placeholder.append(avatar);
 
     const label = document.createElement("span");
@@ -219,7 +339,20 @@ export class Room {
     badge.className = "badge";
     badge.textContent = "connecting…";
 
-    tile.append(video, placeholder, label, badge);
+    const fsBtn = document.createElement("button");
+    fsBtn.className = "fullscreen-btn";
+    fsBtn.type = "button";
+    fsBtn.setAttribute("aria-label", "Fullscreen");
+    fsBtn.textContent = "⛶";
+    fsBtn.onclick = () => {
+      if (document.fullscreenElement === tile) {
+        document.exitFullscreen();
+      } else {
+        tile.requestFullscreen().catch(() => { });
+      }
+    };
+
+    tile.append(video, placeholder, label, badge, fsBtn);
     this.grid.append(tile);
     return tile;
   }

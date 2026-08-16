@@ -57,10 +57,21 @@
         <div class="room-controls">
           <button id="roomMic" class="toggle" type="button" aria-pressed="true">Mic on</button>
           <button id="roomCam" class="toggle" type="button" aria-pressed="true">Camera on</button>
+          <button id="roomShare" class="share-btn" type="button" aria-pressed="false">Share screen</button>
           <button id="leaveBtn" class="leave-btn" type="button">Leave</button>
         </div>
       </header>
-      <div id="grid" class="grid"></div>
+
+      <div class="room-body">
+        <div id="grid" class="grid"></div>
+        <aside class="chat-panel" id="chatPanel">
+          <div id="chatLog" class="chat-log" aria-live="polite"></div>
+          <form id="chatForm" class="chat-form" autocomplete="off">
+            <input id="chatInput" type="text" maxlength="2000" placeholder="Type a message" autocomplete="off" />
+            <button type="submit">Send</button>
+          </form>
+        </aside>
+      </div>
     </section>
 
     <script type="module" src="/js/greenroom.js"></script>
