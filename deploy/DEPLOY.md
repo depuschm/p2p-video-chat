@@ -130,8 +130,9 @@ cert until restarted. Add a renewal hook or a periodic
 - coturn uses `use-auth-secret` so only clients with a valid short-lived
   HMAC credential can relay — this prevents it becoming an open relay.
   Keep `static-auth-secret` strong and out of git.
-- The `/ice` endpoint is public in this prototype: anyone can fetch a
-  TURN credential and use your relay bandwidth. For a private service,
-  cap coturn bandwidth (`max-bps`) or move credential issuance to after
-  a successful room join.
+- TURN credentials are issued over the WebSocket in the password-gated
+  join response, not from a public HTTP endpoint, so only clients that
+  clear the room-password check can obtain a relay credential. As
+  defense in depth, cap coturn bandwidth per allocation with `max-bps`
+  (stubbed in `turnserver.conf.example`).
 - Never commit the real `turnserver.conf`, `.env`, or any certs.

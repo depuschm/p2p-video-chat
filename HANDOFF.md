@@ -10,9 +10,10 @@ password. Built as a prototype, now functional end to end locally.
 - **Topology**: WebRTC mesh (every peer connects directly to every
   other). Suits ~2–4 people; would need an SFU for larger rooms.
 - **Server role**: lightweight signaling relay only. Passes
-  offer/answer/ICE between browsers over WebSockets and issues
-  short-lived TURN credentials. Media never flows through the server
-  (it's P2P, or via TURN relay when direct fails).
+  offer/answer/ICE between browsers over WebSockets, relays text chat,
+  and issues short-lived TURN credentials in the password-gated join
+  response. Media never flows through the server (it's P2P, or via TURN
+  relay when direct fails).
 - **Stack**: Node.js (ES modules), Express for static files + a couple
   of routes, `ws` for WebSocket signaling. Vanilla JS frontend, no
   framework.
@@ -23,18 +24,18 @@ password. Built as a prototype, now functional end to end locally.
 ## File layout
 ```
 server/
-  index.js        HTTP + WebSocket signaling server, in-memory rooms, join/signal/rename/leave handling
+  index.js        HTTP + WebSocket signaling server, in-memory rooms, join/signal/rename/chat/leave handling, TURN creds in join response
   rooms.js        Room password check: scrypt hash + constant-time compare, password from ROOM_PASSWORD env
   rateLimit.js    Per-IP join rate limiting (rolling failure window + lockout)
-  turn.js         Short-lived coturn REST/HMAC TURN credential generation; getIceServers()
+  turn.js         Short-lived coturn REST/HMAC TURN credential generation; getIceServers() (called from handleJoin)
 public/
-  index.html      Green room + in-room grid markup
-  css/style.css   All styles (dark theme, green room, tile grid, avatar placeholder, status badges)
+  index.html      Green room + in-room grid, chat panel, and reconnect status markup
+  css/style.css   All styles (dark theme, green room, tile grid, avatar placeholder, status badges, chat panel, share button)
   js/
-    greenroom.js  Device acquisition, preview, device selection, join flow, wires signaling+mesh+room
-    signaling.js  Thin EventTarget wrapper over the WebSocket protocol
-    rtc.js        Mesh class: one RTCPeerConnection per peer, perfect-negotiation glare handling, fetches ICE from /ice
-    room.js       In-room UI: tiles, avatar placeholders, connection-status badges, mic/cam toggles, clean leave
+    greenroom.js  Device acquisition, preview, device selection, join flow, wires signaling+mesh+room incl. reconnect handling
+    signaling.js  Thin EventTarget wrapper over the WebSocket protocol; auto-reconnect with backoff; sendChat()
+    rtc.js        Mesh class: one RTCPeerConnection per peer, perfect-negotiation glare handling, ICE from join response, screen-share track swap, ICE-restart recovery
+    room.js       In-room UI: tiles, avatars, status badges, mic/cam toggles, screen share, text chat, reconnect status, clean leave
 deploy/
   DEPLOY.md                        Full production guide (Caddy + coturn + VPS)
   Caddyfile.example                Reverse proxy + auto TLS template
@@ -74,15 +75,22 @@ npm start
   graceful fallback when camera is busy (audio-only) or devices are
   missing.
 - Signaling: join with password check, rate limiting, peer
-  join/leave/rename broadcasts, offer/answer/ICE relay.
+  join/leave/rename broadcasts, offer/answer/ICE relay, text-chat relay.
 - WebRTC mesh: peers see and hear each other; perfect-negotiation avoids
   offer glare.
 - In-room UI: video grid, self tile (mirrored, locally muted), avatar
   placeholder when camera off, per-peer connection-status badges.
+- Text chat: room-wide, relayed over the WebSocket, no history.
+- Screen sharing: `replaceTrack`-based track swap (camera <-> screen),
+  self tile un-mirrors while sharing, honors the browser's native "Stop
+  sharing", mid-share joiners receive the screen.
+- Reconnection: ICE restart on failed/disconnected peer connections;
+  WebSocket auto-reconnect with exponential backoff, rebuilding the mesh
+  and re-adding peers on return.
 - Leave/rejoin without page reload; signaling recreated per join to
   avoid stacked listeners.
-- TURN: server-issued short-lived credentials via `/ice`; STUN-only when
-  TURN unconfigured.
+- TURN: short-lived credentials issued in the password-gated join
+  response (not a public endpoint); STUN-only when TURN unconfigured.
 - Docs: README, DEPLOY.md, sanitized deploy templates.
 
 **Verified locally**: two tabs, same room, connect and exchange
@@ -93,24 +101,27 @@ intended.
 ## Not yet done / known limitations
 - **TURN untested** — needs the deployed VPS + coturn and ideally two
   devices on different networks. Local testing only exercises STUN.
-- **`/ice` endpoint is public** — anyone hitting the domain can fetch a
-  TURN credential and use relay bandwidth. Mitigation options: cap
-  coturn `max-bps`, or move credential issuance to post-join over the
-  WebSocket.
-- **No reconnection logic** on transient network drops (badge shows
-  "reconnecting…" but nothing actively re-establishes).
+- **Reconnection reassigns identity** — a signaling reconnect gets a
+  fresh server-assigned `peerId`, so other peers briefly see the client
+  leave and rejoin as a new participant. No stable session identity
+  across socket drops.
 - **Mesh only** — scales to ~4 people before upload bandwidth degrades.
   No SFU.
 - **Single server process** — no horizontal scaling; rooms are lost on
   restart.
 - **Not deployed yet** — DEPLOY.md written but the actual
   VPS/Caddy/coturn setup hasn't been run.
-- **No text chat, no screen sharing.**
+- **Chat is server-relayed** — the signaling server sees chat text in
+  plaintext (over WSS in transit). Not end-to-end like the media. Could
+  move to per-peer data channels if E2E chat is wanted.
 
 ## Security posture
 - Room password hashed in memory (scrypt) + constant-time compare, never
   stored plaintext.
 - Per-IP join rate limiting against brute force.
+- TURN credentials issued only in the password-gated join response, so
+  an unauthenticated caller can't mint a relay credential. `max-bps` in
+  the coturn config is available as a defense-in-depth bandwidth cap.
 - WebRTC media encrypted in transit (DTLS-SRTP) by default.
 - Signaling is plain `ws://` locally; **must** be `wss://` (TLS) off
   localhost or the password crosses the wire in cleartext — handled by
@@ -120,10 +131,11 @@ intended.
 ## Suggested next steps (unprioritized)
 1. Actually deploy to a VPS following DEPLOY.md and verify TURN with a
    real cross-network call.
-2. Harden `/ice` (post-join credential issuance or bandwidth caps).
-3. Add reconnection handling for transient drops.
-4. Text chat and/or screen sharing.
-5. If rooms need >4 people, plan an SFU migration.
+2. Stable identity across reconnects (client token reclaiming the same
+   `peerId` within a grace window) so a reconnect isn't seen as a new
+   participant.
+3. End-to-end chat over per-peer data channels if chat privacy matters.
+4. If rooms need >4 people, plan an SFU migration.
 
 ## Working notes / conventions
 - No comments in code unless the logic earns it.
@@ -131,3 +143,4 @@ intended.
   duplicate-declaration issues from partial splices).
 - Each step has been committed with a detailed feature-list commit
   message.
+  

@@ -14,6 +14,9 @@ lives in memory, so there's nothing to set up beyond a room password.
   toggles, and a display name before you join
 - Peer-to-peer audio/video via WebRTC mesh
 - Live mic/camera toggles inside the room
+- Text chat and screen sharing
+- Automatic recovery from transient network drops (ICE restart) and
+  signaling reconnection with backoff
 - Works with audio only, or watch/listen-only when no devices are present
 - No database — rooms exist in memory and disappear when empty
 
@@ -21,8 +24,9 @@ lives in memory, so there's nothing to set up beyond a room password.
 
 The browsers do the heavy lifting. Audio and video flow directly between
 peers using WebRTC. The Node server is a lightweight signaling relay: it
-passes connection setup messages (offer/answer/ICE) between browsers and
-issues short-lived TURN credentials. It never sees or stores your media.
+passes connection setup messages (offer/answer/ICE) between browsers,
+relays text chat, and issues short-lived TURN credentials after a
+successful room join. It never sees or stores your media.
 
 Mesh topology suits small rooms (roughly 2–4 people). Larger rooms would
 need an SFU, which is out of scope for this prototype.
@@ -126,6 +130,8 @@ covering Caddy (automatic TLS), coturn, DNS, and firewall setup.
 - Access is gated only by the shared room password. Anyone with the room
   name and password can join. This suits a small private room, not a
   public multi-tenant service.
+- TURN relay credentials are issued only after a successful room join, so
+  they can't be minted by an unauthenticated caller.
 - WebRTC media is encrypted in transit (DTLS-SRTP) by default.
 - The room password is hashed in memory (scrypt) and compared in
   constant time; it is never stored in plaintext.
