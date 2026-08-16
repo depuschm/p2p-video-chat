@@ -15,17 +15,18 @@ const app = express();
 app.use(express.static(join(__dirname, "..", "public")));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-// Hands short-lived ICE/TURN config to clients. No secrets leave the
-// server — only a time-limited HMAC credential the browser can use.
-app.get("/ice", (_req, res) => {
-  res.json({ iceServers: getIceServers() });
-});
+// Note: TURN credentials are no longer served from a public HTTP route.
+// They're issued over the WebSocket in the "joined" message, only after
+// a successful password-checked join, so an unauthenticated caller can't
+// mint a relay credential and burn coturn bandwidth.
 
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
 // room name -> { members: Map<peerId, { ws, name }> }
 const rooms = new Map();
+
+const MAX_CHAT_LEN = 2000;
 
 function send(ws, msg) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
@@ -74,6 +75,8 @@ wss.on("connection", (ws, req) => {
         return handleSignal(ws, msg);
       case "rename":
         return handleRename(ws, msg);
+      case "chat":
+        return handleChat(ws, msg);
       case "leave":
         return ws.close(1000, "left");
       default:
@@ -120,7 +123,16 @@ function handleJoin(ws, ip, msg) {
 
   r.members.set(peerId, { ws, name });
 
-  send(ws, { type: "joined", peerId, room, peers: existing });
+  // Issue TURN/ICE config here, gated behind the password check above.
+  // Freshly minted per join so a reconnect gets a credential with a full
+  // TTL rather than reusing a possibly-expired one.
+  send(ws, {
+    type: "joined",
+    peerId,
+    room,
+    peers: existing,
+    iceServers: getIceServers(),
+  });
   broadcast(room, { type: "peer-joined", peerId, name }, peerId);
 }
 
@@ -146,6 +158,16 @@ function handleRename(ws, msg) {
   if (member) member.name = name;
   ws.ctx.name = name;
   broadcast(room, { type: "peer-renamed", peerId, name });
+}
+
+// Relay a chat line to everyone in the room, sender included, so all
+// clients render from a single ordered source. Text only — no history
+// is kept, so late joiners see messages from their arrival onward.
+function handleChat(ws, msg) {
+  const { room, peerId, name } = ws.ctx;
+  const text = String(msg.text ?? "").slice(0, MAX_CHAT_LEN).trim();
+  if (!text) return;
+  broadcast(room, { type: "chat", peerId, name, text, ts: Date.now() });
 }
 
 server.listen(PORT, () => {

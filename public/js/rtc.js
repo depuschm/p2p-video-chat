@@ -1,48 +1,38 @@
-// Fetch ICE servers (STUN + short-lived TURN) from our server once,
-// and reuse for all peer connections in this session.
-let iceServersPromise = null;
+// ICE servers (STUN + short-lived TURN) are handed to us over signaling
+// in the "joined"/"rejoined" message, after the room password check —
+// they're no longer fetched from a public HTTP endpoint. Stored per Mesh
+// and reused for every peer connection in the session.
 
 // How long to let a "disconnected" connection try to recover on its own
 // before forcing an ICE restart. "failed" restarts immediately.
 const DISCONNECT_GRACE_MS = 2000;
 
-function getIceServers() {
-  if (!iceServersPromise) {
-    iceServersPromise = fetch("/ice")
-      .then((r) => r.json())
-      .then((d) => d.iceServers)
-      .catch((err) => {
-        console.error("Failed to fetch ICE config, falling back to STUN:", err);
-        return [{ urls: "stun:stun.l.google.com:19302" }];
-      });
-  }
-  return iceServersPromise;
-}
+const STUN_FALLBACK = [{ urls: "stun:stun.l.google.com:19302" }];
 
 // Manages a mesh of peer connections, one per remote peer, using the
 // perfect-negotiation pattern to avoid offer glare.
 export class Mesh extends EventTarget {
-  constructor({ signaling, localStream, selfId }) {
+  constructor({ signaling, localStream, selfId, iceServers }) {
     super();
     this.signaling = signaling;
     this.localStream = localStream;
     this.selfId = selfId;
-    this.peers = new Map(); // peerId -> { pc, polite, makingOffer, ignoreOffer, disconnectTimer }
-    this.iceServers = null;
+    this.iceServers = iceServers ?? STUN_FALLBACK;
+    this.peers = new Map(); // peerId -> { pc, polite, makingOffer, ignoreOffer, videoSender, disconnectTimer }
+
+    // The video track currently sent to peers: the camera track by
+    // default, or a screen-share track while sharing. Tracked here so
+    // peers who join (or re-join after a reconnect) mid-share also get
+    // the active track.
+    this.activeVideoTrack = localStream?.getVideoTracks()[0] ?? null;
 
     this.signaling.addEventListener("signal", (e) => this.#onSignal(e.detail));
   }
 
-  async #ensureIceServers() {
-    if (!this.iceServers) this.iceServers = await getIceServers();
-    return this.iceServers;
-  }
+  addPeer(peerId, name) {
+    if (this.peers.has(peerId)) return this.peers.get(peerId);
 
-  async addPeer(peerId, name) {
-    if (this.peers.has(peerId)) return;
-
-    const iceServers = await this.#ensureIceServers();
-    const pc = new RTCPeerConnection({ iceServers });
+    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     // Deterministic role: lexicographically smaller id is "polite".
     const polite = this.selfId < peerId;
     const state = {
@@ -50,18 +40,25 @@ export class Mesh extends EventTarget {
       polite,
       makingOffer: false,
       ignoreOffer: false,
+      videoSender: null,
       disconnectTimer: null,
     };
     this.peers.set(peerId, state);
 
     this.dispatchEvent(new CustomEvent("peer-added", { detail: { peerId, name } }));
 
-    if (this.localStream) {
-      for (const track of this.localStream.getTracks()) {
-        pc.addTrack(track, this.localStream);
-      }
+    const streamForPeer = this.localStream ?? new MediaStream();
+
+    const audioTracks = this.localStream ? this.localStream.getAudioTracks() : [];
+    if (audioTracks.length) {
+      for (const track of audioTracks) pc.addTrack(track, streamForPeer);
     } else {
       pc.addTransceiver("audio", { direction: "recvonly" });
+    }
+
+    if (this.activeVideoTrack) {
+      state.videoSender = pc.addTrack(this.activeVideoTrack, streamForPeer);
+    } else {
       pc.addTransceiver("video", { direction: "recvonly" });
     }
 
@@ -145,12 +142,34 @@ export class Mesh extends EventTarget {
     tracks.forEach((t) => (t.enabled = enabled));
   }
 
-  // After a signaling reconnect the server issues a new self id and the
-  // old peer connections are stale. Drop them all and adopt the new id;
-  // the caller then re-adds the current peers.
-  reset(newSelfId) {
+  // Swap the outgoing video track on every peer (camera <-> screen).
+  // replaceTrack avoids renegotiation when a video sender already
+  // exists; peers with no prior video sender (audio-only/no-camera)
+  // get the track added, which renegotiates via onnegotiationneeded.
+  // Passing null stops sending video while keeping the sender.
+  async setVideoTrack(track) {
+    this.activeVideoTrack = track;
+    for (const [, state] of this.peers) {
+      if (state.videoSender) {
+        await state.videoSender.replaceTrack(track);
+      } else if (track) {
+        state.videoSender = state.pc.addTrack(
+          track,
+          this.localStream ?? new MediaStream([track])
+        );
+      }
+    }
+  }
+
+  // After a signaling reconnect the server issues a new self id and fresh
+  // ICE credentials, and the old peer connections are stale. Drop them
+  // all and adopt the new id/credentials; the caller then re-adds the
+  // current peers. activeVideoTrack is preserved, so a reconnect during a
+  // screen share re-establishes with the screen still going.
+  reset(newSelfId, iceServers) {
     this.close();
     this.selfId = newSelfId;
+    if (iceServers) this.iceServers = iceServers;
   }
 
   close() {
@@ -164,7 +183,7 @@ export class Mesh extends EventTarget {
   async #onSignal({ from, data }) {
     let state = this.peers.get(from);
     // A signal can arrive before we've registered the peer (race on join).
-    if (!state) state = await this.addPeer(from, "");
+    if (!state) state = this.addPeer(from, "");
 
     const { pc, polite } = state;
 

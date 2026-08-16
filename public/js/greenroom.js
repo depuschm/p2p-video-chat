@@ -178,9 +178,11 @@ joinForm.addEventListener("submit", (e) => {
   signaling.connect(config);
 
   signaling.addEventListener("joined", (ev) => {
-    const { peerId: selfId, peers } = ev.detail;
+    const { peerId: selfId, peers, iceServers } = ev.detail;
 
-    const mesh = new Mesh({ signaling, localStream: stream, selfId });
+    // ICE config is issued in the join response now, not fetched from a
+    // public endpoint — it's gated behind the password check.
+    const mesh = new Mesh({ signaling, localStream: stream, selfId, iceServers });
     const room = new Room({
       mesh,
       signaling,
@@ -213,10 +215,11 @@ joinForm.addEventListener("submit", (e) => {
       room.setConnectionStatus(`Reconnecting… (attempt ${e2.detail.attempt})`);
     });
 
-    // Socket came back. The server issued a new self id and the old peer
-    // connections are dead, so reset the mesh and re-add current peers.
+    // Socket came back. The server issued a new self id and fresh ICE
+    // credentials, and the old peer connections are dead — reset the mesh
+    // and re-add current peers.
     signaling.addEventListener("rejoined", (e2) => {
-      mesh.reset(e2.detail.peerId);
+      mesh.reset(e2.detail.peerId, e2.detail.iceServers);
       room.clearRemoteTiles();
       room.setConnectionStatus("");
       for (const p of e2.detail.peers) {
